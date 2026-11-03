@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Weather Safety Advisor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body data-weather="">
+  <div id="fx" aria-hidden="true"></div>
+  <div class="page">
+    <header id="nav"></header>
+    <main class="max-w-3xl mx-auto px-4 py-8">
+      <h1 class="text-3xl font-extrabold">🌦️ Weather Safety Advisor</h1>
+      <p class="text-slate-300 mt-1">Don't just see the weather. Get clear safety advice for heat, rain, wind and storms.</p>
+
+      <form id="form" class="flex gap-2 mt-6 flex-wrap" novalidate>
+        <label for="city" class="sr-only">City name</label>
+        <input id="city" class="field flex-1 min-w-[12rem]" placeholder="Search a city, e.g. Bengaluru" autocomplete="off" maxlength="60" />
+        <button class="btn" id="go" type="submit">Search</button>
+        <button class="btn ghost" id="geo" type="button" title="Use my location">📍 My location</button>
+      </form>
+      <div id="recent" class="flex flex-wrap gap-2 mt-3 text-sm"></div>
+      <div id="status" role="status" aria-live="polite" class="mt-5"></div>
+
+      <section id="out" class="hidden mt-2">
+        <div class="card pop-in">
+          <h2 id="place" class="text-xl font-bold"></h2>
+          <div class="flex items-center gap-5 mt-3">
+            <span id="icon" class="text-7xl bounce" aria-hidden="true"></span>
+            <div><p id="temp" class="text-5xl font-extrabold"></p><p id="desc" class="text-slate-300"></p></div>
+          </div>
+          <div class="grid grid-cols-3 gap-3 mt-5 text-center text-sm">
+            <div class="card"><p class="text-slate-400">Humidity</p><p id="hum" class="font-bold text-lg"></p></div>
+            <div class="card"><p class="text-slate-400">Wind</p><p id="wind" class="font-bold text-lg"></p></div>
+            <div class="card"><p class="text-slate-400">Rain now</p><p id="rain" class="font-bold text-lg"></p></div>
+          </div>
+        </div>
+        <h3 class="font-bold mt-6 mb-2">⚠️ Safety advice for today</h3>
+        <ul id="advice" class="space-y-2"></ul>
+        <h3 class="font-bold mt-6 mb-2">Next 5 days</h3>
+        <div id="forecast" class="grid grid-cols-2 sm:grid-cols-5 gap-3"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    App.renderNav("wx");
+    const { $, esc, api, store } = App;
+    let seq = 0;
+
+    // ----- background effects by weather kind -----
+    function effects(kind) {
+      const fx = $("#fx"); fx.innerHTML = ""; document.body.dataset.weather = kind || "";
+      const make = (n, fn) => { for (let i = 0; i < n; i++) fx.appendChild(fn(i)); };
+      if (kind === "rain" || kind === "storm") make(kind === "storm" ? 90 : 60, () => {
+        const d = document.createElement("i"); d.className = "drop";
+        d.style.left = Math.random() * 100 + "%"; d.style.animationDuration = 0.5 + Math.random() * 0.6 + "s"; d.style.animationDelay = -Math.random() * 2 + "s"; return d; });
+      else if (kind === "snow") make(40, () => {
+        const d = document.createElement("i"); d.className = "flake"; d.textContent = "❄";
+        d.style.left = Math.random() * 100 + "%"; d.style.fontSize = 8 + Math.random() * 14 + "px"; d.style.animationDuration = 5 + Math.random() * 6 + "s"; d.style.animationDelay = -Math.random() * 8 + "s"; return d; });
+      else if (kind === "sun") { const s = document.createElement("div"); s.className = "sunray"; fx.appendChild(s); }
+      else if (kind === "cloud") make(4, (i) => {
+        const c = document.createElement("div"); c.className = "cloudfx"; c.textContent = "☁️";
+        c.style.top = 8 + i * 18 + "%"; c.style.animationDuration = 40 + i * 12 + "s"; c.style.animationDelay = -i * 11 + "s"; return c; });
+    }
+
+    function recent() {
+      const list = store.get("wx_recent", []);
+      $("#recent").innerHTML = list.length ? '<span class="text-slate-400">Recent:</span>' +
+        list.map((c) => `<button type="button" class="btn ghost sm" data-city="${esc(c)}">${esc(c)}</button>`).join("") : "";
+    }
+    function remember(name) {
+      const list = store.get("wx_recent", []).filter((c) => c !== name); list.unshift(name);
+      store.set("wx_recent", list.slice(0, 5)); recent();
+    }
+
+    function setBusy(busy, text = "") {
+      $("#go").disabled = $("#geo").disabled = busy;
+      $("#status").innerHTML = busy ? `<div class="card"><span class="spinner"></span>${esc(text)}</div><div class="skeleton mt-4"></div>` : "";
+      if (busy) $("#out").classList.add("hidden");
+    }
+
+    async function run(qs, label) {
+      const mine = ++seq;
+      setBusy(true, "Loading weather" + (label ? " for " + label : "") + "…");
+      try {
+        const d = await api("/api/weather?" + qs);
+        if (mine !== seq) return;
+        setBusy(false);
+        show(d);
+        if (d.location.name !== "Your location") remember(d.location.name);
+      } catch (e) {
+        if (mine !== seq) return;
+        setBusy(false);
+        $("#status").innerHTML = `<div class="advice red" role="alert">❌ ${esc(e.message)}</div>`;
+      }
+    }
+
+    function show(d) {
+      const c = d.current, loc = d.location;
+      $("#place").textContent = [loc.name, loc.admin1, loc.country].filter(Boolean).join(", ");
+      $("#icon").textContent = c.icon; $("#temp").textContent = c.temp + "°C"; $("#desc").textContent = c.text;
+      $("#hum").textContent = c.humidity + "%"; $("#wind").textContent = c.wind + " km/h"; $("#rain").textContent = c.precipitation + " mm";
+      $("#advice").innerHTML = d.advice.map((a, i) => `<li class="advice ${esc(a.level)} pop-in" style="animation-delay:${i * 90}ms">${esc(a.text)}</li>`).join("");
+      $("#forecast").innerHTML = d.forecast.map((f, i) => {
+        const label = new Date(f.date + "T12:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric" });
+        return `<div class="card text-center pop-in" style="animation-delay:${i * 80}ms"><p class="text-sm text-slate-400">${esc(label)}</p><p class="text-3xl my-1" title="${esc(f.text)}">${f.icon}</p><p class="font-bold">${f.max}° <span class="text-slate-400 font-normal">${f.min}°</span></p><p class="text-xs text-sky-300">💧 ${f.rainChance}%</p></div>`;
+      }).join("");
+      $("#out").classList.remove("hidden");
+      effects(c.kind);
+    }
+
+    $("#form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const city = $("#city").value.trim();
+      if (city.length < 2) { $("#city").classList.add("invalid"); $("#status").innerHTML = '<div class="advice amber" role="alert">Please enter a city name (at least 2 letters).</div>'; return; }
+      $("#city").classList.remove("invalid");
+      run("city=" + encodeURIComponent(city), city);
+    });
+    $("#recent").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-city]"); if (!b) return;
+      $("#city").value = b.dataset.city; run("city=" + encodeURIComponent(b.dataset.city), b.dataset.city);
+    });
+    $("#geo").addEventListener("click", () => {
+      if (!navigator.geolocation) { $("#status").innerHTML = '<div class="advice amber">Your browser does not support location.</div>'; return; }
+      setBusy(true, "Finding your location…");
+      navigator.geolocation.getCurrentPosition(
+        (p) => run(`lat=${p.coords.latitude.toFixed(4)}&lon=${p.coords.longitude.toFixed(4)}`, "your location"),
+        (err) => { setBusy(false); $("#status").innerHTML = `<div class="advice amber" role="alert">${err.code === 1 ? "Location permission was denied. Search a city instead." : "Could not get your location."}</div>`; },
+        { timeout: 8000 });
+    });
+    recent();
+  </script>
+</body>
+</html>

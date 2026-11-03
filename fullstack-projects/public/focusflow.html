@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FocusFlow Study Planner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="page">
+    <header id="nav"></header>
+    <main class="max-w-5xl mx-auto px-4 py-8">
+      <h1 class="text-3xl font-extrabold">🎯 FocusFlow</h1>
+      <p class="text-slate-300 mt-1">Big study goals feel overwhelming. Break them into small steps and focus one session at a time.</p>
+
+      <div class="grid gap-6 md:grid-cols-2 mt-6">
+        <!-- Timer -->
+        <section class="card text-center" id="timerCard" aria-labelledby="tt">
+          <h2 id="tt" class="font-bold text-lg">Focus Timer</h2>
+          <div class="flex justify-center gap-2 my-3 flex-wrap" role="group" aria-label="Timer mode">
+            <button class="btn sm mode" data-min="25">Focus 25</button>
+            <button class="btn ghost sm mode" data-min="5">Break 5</button>
+            <button class="btn ghost sm mode" data-min="15">Long break 15</button>
+          </div>
+          <div class="relative mx-auto" style="width:220px;height:220px">
+            <svg class="dial" viewBox="0 0 120 120" width="220" height="220" aria-hidden="true">
+              <defs><linearGradient id="grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+              <circle class="track" cx="60" cy="60" r="52"/>
+              <circle class="prog" id="prog" cx="60" cy="60" r="52" stroke-dasharray="326.7" stroke-dashoffset="0"/>
+            </svg>
+            <p id="clock" class="clock absolute inset-0 grid place-items-center text-5xl font-extrabold tabular-nums" role="timer" aria-live="off">25:00</p>
+          </div>
+          <div class="flex justify-center gap-2 mt-4">
+            <button class="btn" id="start">Start</button>
+            <button class="btn ghost" id="reset">Reset</button>
+          </div>
+          <p class="mt-3 text-sm text-slate-400">Sessions today: <strong id="sessions" data-v="0">0</strong> · Focus minutes: <strong id="minutes" data-v="0">0</strong></p>
+        </section>
+
+        <!-- Progress -->
+        <section class="card" aria-labelledby="pt">
+          <h2 id="pt" class="font-bold text-lg mb-3">Progress</h2>
+          <div class="grid grid-cols-3 gap-3 text-center">
+            <div class="card"><p class="text-2xl font-bold" id="sTotal" data-v="0">0</p><p class="text-xs text-slate-400">Tasks</p></div>
+            <div class="card"><p class="text-2xl font-bold" id="sDone" data-v="0">0</p><p class="text-xs text-slate-400">Done</p></div>
+            <div class="card"><p class="text-2xl font-bold" id="sPct" data-v="0">0</p><p class="text-xs text-slate-400">% complete</p></div>
+          </div>
+          <div class="bar mt-4" aria-hidden="true"><i id="bar"></i></div>
+          <p id="motivation" class="text-sm text-slate-300 mt-3"></p>
+          <h3 class="font-semibold text-sm mt-5 mb-2">Focus minutes, last 7 days</h3>
+          <div class="week" id="week" aria-label="Weekly focus chart"></div>
+        </section>
+
+        <!-- Tasks -->
+        <section class="card md:col-span-2" aria-labelledby="kt">
+          <h2 id="kt" class="font-bold text-lg mb-3">Study tasks</h2>
+          <form id="taskForm" novalidate class="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
+            <div><label class="sr-only" for="text">Task</label><input id="text" class="field" maxlength="120" placeholder="Big goal, e.g. Finish JavaScript Unit II" /></div>
+            <div><label class="sr-only" for="steps">Small steps</label><input id="steps" class="field" placeholder="Small steps, comma separated (optional)" /></div>
+            <div><label class="sr-only" for="subject">Subject</label><select id="subject" class="field"><option>Web Dev</option><option>Maths</option><option>Programming</option><option>Other</option></select></div>
+            <button class="btn" id="addBtn" type="submit">Add</button>
+          </form>
+          <p class="err" id="formErr" role="alert"></p>
+          <div class="flex gap-2 mt-2" role="group" aria-label="Filter tasks">
+            <button class="btn sm flt" data-f="all">All</button>
+            <button class="btn ghost sm flt" data-f="open">Pending</button>
+            <button class="btn ghost sm flt" data-f="done">Completed</button>
+          </div>
+          <ul id="list" class="mt-4 space-y-3"></ul>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    App.renderNav("ff");
+    const { $, $$, esc, api, toast, localDate, countUp, confetti } = App;
+    const CIRC = 2 * Math.PI * 52;
+    let filter = "all", seq = 0, lastPct = null;
+
+    /* ================= Tasks ================= */
+    async function loadTasks() {
+      const mine = ++seq;
+      try {
+        const d = await api("/api/tasks?status=" + filter);
+        if (mine !== seq) return;
+        renderTasks(d);
+      } catch (e) {
+        if (mine !== seq) return;
+        $("#list").innerHTML = `<li class="card empty">⚠️ ${esc(e.message)} <button class="btn sm ml-2" id="retry">Retry</button></li>`;
+      }
+    }
+    function renderTasks({ tasks, summary }) {
+      countUp($("#sTotal"), summary.total); countUp($("#sDone"), summary.done); countUp($("#sPct"), summary.progress);
+      $("#bar").style.width = summary.progress + "%";
+      $("#motivation").textContent = !summary.total ? "Add a task and start with one 25-minute session."
+        : summary.progress === 100 ? "🎉 Everything done! Great work today."
+        : summary.progress >= 50 ? "You're over halfway. Keep the momentum going!"
+        : "Small steps add up. Start the timer and finish one step.";
+      if (summary.progress === 100 && summary.total && lastPct !== null && lastPct < 100) confetti();
+      lastPct = summary.progress;
+      $("#list").innerHTML = tasks.length ? tasks.map((t, n) => `
+        <li class="card pop-in ${t.completed ? "opacity-80" : ""}" style="animation-delay:${Math.min(n, 8) * 50}ms">
+          <div class="flex items-center gap-2 flex-wrap">
+            ${t.steps.length ? "" : `<input type="checkbox" data-act="toggle" data-id="${t.id}" ${t.done ? "checked" : ""} aria-label="Mark ${esc(t.text)} done" />`}
+            <span class="font-semibold ${t.completed ? "line-through text-slate-400" : ""}">${esc(t.text)}</span>
+            <span class="chip tag">${esc(t.subject)}</span>
+            <span class="text-xs text-slate-400 ml-auto">${t.progress}%</span>
+            <button class="btn danger sm" data-act="delete" data-id="${t.id}" aria-label="Delete ${esc(t.text)}">✕</button>
+          </div>
+          ${t.steps.length ? `<div class="bar mt-2" aria-hidden="true"><i style="width:${t.progress}%"></i></div>
+          <ul class="mt-2 ml-1 space-y-1">${t.steps.map((s, i) => `<li class="text-sm"><label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" data-act="step" data-id="${t.id}" data-i="${i}" ${s.done ? "checked" : ""} />
+            <span class="${s.done ? "line-through text-slate-400" : ""}">${esc(s.text)}</span></label></li>`).join("")}</ul>` : ""}
+        </li>`).join("") : '<li class="card empty">No tasks here yet. Add your first one above 👆</li>';
+    }
+
+    $("#taskForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = $("#text").value.trim();
+      $("#formErr").textContent = ""; $("#text").classList.remove("invalid");
+      if (text.length < 3) { $("#formErr").textContent = "Please enter a task (at least 3 characters)."; $("#text").classList.add("invalid"); return; }
+      const btn = $("#addBtn"); btn.disabled = true;
+      try {
+        await api("/api/tasks", { method: "POST", body: { text, subject: $("#subject").value, steps: $("#steps").value } });
+        e.target.reset(); toast("Task added ✔", "ok"); await loadTasks();
+      } catch (err) {
+        const d = err.details || {}; $("#formErr").textContent = d.text || d.steps || d.subject || err.message; toast(err.message, "bad");
+      } finally { btn.disabled = false; }
+    });
+
+    $("#list").addEventListener("change", async (e) => {
+      const el = e.target; if (!el.dataset.act) return;
+      try {
+        if (el.dataset.act === "toggle") await api("/api/tasks/" + el.dataset.id, { method: "PATCH", body: { done: el.checked } });
+        else await api(`/api/tasks/${el.dataset.id}/steps/${el.dataset.i}`, { method: "PATCH", body: { done: el.checked } });
+        await loadTasks();
+      } catch (err) { toast(err.message, "bad"); el.checked = !el.checked; }
+    });
+    $("#list").addEventListener("click", async (e) => {
+      if (e.target.id === "retry") return loadTasks();
+      const b = e.target.closest("button[data-act='delete']"); if (!b) return;
+      b.disabled = true;
+      try {
+        await api("/api/tasks/" + b.dataset.id, { method: "DELETE" });
+        b.closest("li").classList.add("slide-out"); await new Promise((r) => setTimeout(r, 300));
+        await loadTasks();
+      } catch (err) { toast(err.message, "bad"); b.disabled = false; }
+    });
+    $$(".flt").forEach((b) => b.addEventListener("click", () => {
+      filter = b.dataset.f;
+      $$(".flt").forEach((x) => x.classList.toggle("ghost", x !== b));
+      loadTasks();
+    }));
+
+    /* ================= Stats ================= */
+    async function loadStats() {
+      try {
+        const s = await api("/api/stats?date=" + localDate());
+        countUp($("#sessions"), s.sessions); countUp($("#minutes"), s.minutes);
+        const max = Math.max(30, ...s.week.map((d) => d.minutes));
+        $("#week").innerHTML = s.week.map((d, i) => `<div class="col ${i === s.week.length - 1 ? "today" : ""}">
+          <span>${d.minutes}</span><i data-h="${Math.round((d.minutes / max) * 80)}"></i>
+          <span>${new Date(d.date + "T12:00:00").toLocaleDateString("en-IN", { weekday: "narrow" })}</span></div>`).join("");
+        requestAnimationFrame(() => $$("#week i").forEach((i) => (i.style.height = i.dataset.h + "px")));
+      } catch (_) { /* stats are optional */ }
+    }
+
+    /* ================= Timer =================
+       Uses an end-time stamp, not "subtract 1 every second", so the countdown stays
+       correct even if the browser throttles the tab in the background. */
+    let mode = 25, total = 1500, left = 1500, endAt = 0, tick = null;
+    const fmt = (s) => String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+    function draw() {
+      $("#clock").textContent = fmt(left);
+      $("#prog").style.strokeDashoffset = String(CIRC * (1 - left / total));
+      $("#timerCard").classList.toggle("running", !!tick);
+      document.title = (tick ? fmt(left) + " · " : "") + "FocusFlow Study Planner";
+      $("#start").textContent = tick ? "Pause" : (left < total && left > 0 ? "Resume" : "Start");
+    }
+    function stop() { clearInterval(tick); tick = null; }
+    async function finish() {
+      stop(); left = 0; draw();
+      if (mode === 25) {
+        confetti(40);
+        try { await api("/api/stats/session", { method: "POST", body: { date: localDate(), minutes: 25 } }); toast("Focus session saved 🎉", "ok"); loadStats(); }
+        catch (e) { toast("Session finished, but saving failed: " + e.message, "bad"); }
+      } else toast("Break over. Ready to focus?", "ok");
+      left = total; draw();
+    }
+    function onTick() {
+      left = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+      draw();
+      if (left <= 0) finish();
+    }
+    $("#start").addEventListener("click", () => {
+      if (tick) { stop(); draw(); return; }
+      if (left <= 0) left = total;
+      endAt = Date.now() + left * 1000;
+      tick = setInterval(onTick, 250); draw();
+    });
+    $("#reset").addEventListener("click", () => { stop(); left = total; draw(); });
+    $$(".mode").forEach((b) => b.addEventListener("click", () => {
+      stop(); mode = Number(b.dataset.min); total = left = mode * 60;
+      $$(".mode").forEach((x) => x.classList.toggle("ghost", x !== b)); draw();
+    }));
+
+    draw(); loadTasks(); loadStats();
+  </script>
+</body>
+</html>

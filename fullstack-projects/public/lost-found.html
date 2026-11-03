@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Smart Lost &amp; Found</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="page">
+    <header id="nav"></header>
+    <main class="max-w-6xl mx-auto px-4 py-8">
+      <h1 class="text-3xl font-extrabold">🔎 Smart Lost &amp; Found</h1>
+      <p class="text-slate-300 mt-1">Report a lost or found item and help it get back to its owner.</p>
+
+      <section class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6" aria-label="Summary">
+        <div class="card text-center"><p class="text-3xl font-bold" id="sTotal">0</p><p class="text-xs text-slate-400">Total</p></div>
+        <div class="card text-center"><p class="text-3xl font-bold text-red-300" id="sLost">0</p><p class="text-xs text-slate-400">Lost</p></div>
+        <div class="card text-center"><p class="text-3xl font-bold text-green-300" id="sFound">0</p><p class="text-xs text-slate-400">Found</p></div>
+        <div class="card text-center"><p class="text-3xl font-bold text-cyan-300" id="sResolved">0</p><p class="text-xs text-slate-400">Resolved</p></div>
+      </section>
+
+      <div class="grid gap-6 lg:grid-cols-3 mt-6">
+        <section class="card h-fit" aria-labelledby="ft">
+          <h2 id="ft" class="text-lg font-bold mb-3">Report an item</h2>
+          <form id="itemForm" novalidate class="space-y-3">
+            <div><label class="lbl" for="type">Type</label>
+              <select id="type" name="type" class="field"><option>Lost</option><option>Found</option></select><p class="err" data-for="type"></p></div>
+            <div><label class="lbl" for="name">Item name</label>
+              <input id="name" name="name" class="field" maxlength="80" placeholder="e.g. Blue water bottle" /><p class="err" data-for="name"></p></div>
+            <div><label class="lbl" for="category">Category</label>
+              <select id="category" name="category" class="field" data-cats>
+                <option value="">Select category</option>
+              </select><p class="err" data-for="category"></p></div>
+            <div><label class="lbl" for="location">Location</label>
+              <input id="location" name="location" class="field" maxlength="80" placeholder="e.g. Library, 2nd floor" /><p class="err" data-for="location"></p></div>
+            <div><label class="lbl" for="date">Date</label>
+              <input id="date" name="date" type="date" class="field" /><p class="err" data-for="date"></p></div>
+            <div><label class="lbl" for="desc">Description</label>
+              <textarea id="desc" name="desc" rows="2" maxlength="300" class="field" placeholder="Colour, brand, marks…"></textarea><p class="err" data-for="desc"></p></div>
+            <div><label class="lbl" for="contact">Contact (email or phone)</label>
+              <input id="contact" name="contact" class="field" placeholder="you@college.edu or 9876543210" /><p class="err" data-for="contact"></p></div>
+            <button class="btn w-full" id="submitBtn" type="submit">Submit report</button>
+          </form>
+        </section>
+
+        <section class="lg:col-span-2" aria-labelledby="rt">
+          <h2 id="rt" class="sr-only">Reported items</h2>
+          <div class="card grid gap-3 sm:grid-cols-3">
+            <input id="q" type="search" aria-label="Search items" class="field sm:col-span-3" placeholder="Search by name, place, description…" />
+            <select id="fType" aria-label="Filter by type" class="field"><option value="">All types</option><option>Lost</option><option>Found</option></select>
+            <select id="fCat" aria-label="Filter by category" class="field" data-cats><option value="">All categories</option></select>
+            <select id="fStatus" aria-label="Filter by status" class="field"><option value="">Any status</option><option>Open</option><option>Resolved</option></select>
+          </div>
+          <p id="count" class="text-sm text-slate-400 my-3" aria-live="polite"></p>
+          <div id="results" class="grid gap-4 sm:grid-cols-2"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    App.renderNav("lf");
+    const { $, $$, esc, api, toast, localDate, debounce, countUp } = App;
+    const CATS = ["Electronics", "Documents/ID", "Bags", "Keys", "Clothing", "Books", "Other"];
+    $$("[data-cats]").forEach((s) => CATS.forEach((c) => s.insertAdjacentHTML("beforeend", `<option>${c}</option>`)));
+    $("#date").value = localDate();
+    $("#date").max = localDate();
+
+    let seq = 0; // guards against slow old responses overwriting newer ones
+
+    function skeletons() {
+      $("#results").innerHTML = '<div class="skeleton"></div><div class="skeleton"></div>';
+    }
+
+    async function load() {
+      const mine = ++seq;
+      const p = new URLSearchParams();
+      [["q", "#q"], ["type", "#fType"], ["category", "#fCat"], ["status", "#fStatus"]].forEach(([k, s]) => { const v = $(s).value.trim(); if (v) p.set(k, v); });
+      if (!$("#results").children.length) skeletons();
+      try {
+        const data = await api("/api/items?" + p);
+        if (mine !== seq) return;
+        render(data);
+      } catch (e) {
+        if (mine !== seq) return;
+        $("#count").textContent = "";
+        $("#results").innerHTML = `<div class="card empty sm:col-span-2"><p>⚠️ ${esc(e.message)}</p><button class="btn sm mt-3" id="retry">Try again</button></div>`;
+      }
+    }
+
+    function render({ items, summary }) {
+      countUp($("#sTotal"), summary.total); countUp($("#sLost"), summary.lost);
+      countUp($("#sFound"), summary.found); countUp($("#sResolved"), summary.resolved);
+      $("#count").textContent = items.length + " item(s) shown";
+      $("#results").innerHTML = items.length ? items.map((i, n) => `
+        <article class="card pop-in" style="animation-delay:${Math.min(n, 8) * 60}ms" data-card="${i.id}">
+          <div class="flex justify-between items-start gap-2">
+            <h3 class="font-bold">${esc(i.name)}</h3>
+            <span class="chip ${i.type === "Lost" ? "lost" : "found"}">${esc(i.type)}</span>
+          </div>
+          <p class="text-sm text-slate-400 mt-1">${esc(i.category)} · ${esc(i.location)} · ${esc(i.date)}</p>
+          <p class="text-sm mt-2">${esc(i.desc || "No description")}</p>
+          <p class="text-sm mt-2">📞 ${esc(i.contact)}</p>
+          <div class="flex items-center gap-2 mt-3">
+            <span class="text-xs ${i.status === "Resolved" ? "text-green-300" : "text-amber-300"}">● ${esc(i.status)}</span>
+            <button class="btn ghost sm ml-auto" data-act="toggle" data-id="${i.id}" data-status="${i.status === "Open" ? "Resolved" : "Open"}">${i.status === "Open" ? "Mark resolved" : "Reopen"}</button>
+            <button class="btn danger sm" data-act="delete" data-id="${i.id}" aria-label="Delete ${esc(i.name)}">Delete</button>
+          </div>
+        </article>`).join("")
+        : '<div class="card empty sm:col-span-2">No items match. Try changing your filters.</div>';
+    }
+
+    function clearErrors() {
+      $$(".err").forEach((e) => (e.textContent = ""));
+      $$(".field.invalid").forEach((f) => f.classList.remove("invalid"));
+    }
+    function showErrors(details) {
+      let first = null;
+      Object.entries(details || {}).forEach(([k, msg]) => {
+        const p = $(`.err[data-for="${k}"]`); const f = $("#" + k);
+        if (p) p.textContent = msg;
+        if (f) { f.classList.add("invalid"); first = first || f; }
+      });
+      if (first) first.focus();
+    }
+    function clientValidate(v) {
+      const e = {};
+      if (v.name.length < 3) e.name = "Item name must be at least 3 characters.";
+      if (!v.category) e.category = "Choose a category.";
+      if (v.location.length < 2) e.location = "Enter the location.";
+      if (!v.date) e.date = "Pick a date.";
+      else if (v.date > localDate(new Date(Date.now() + 86400000))) e.date = "Date cannot be in the future.";
+      if (!(/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.contact) || /^\+?[\d\s-]{8,15}$/.test(v.contact))) e.contact = "Enter a valid email or phone number.";
+      return e;
+    }
+
+    $("#itemForm").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      clearErrors();
+      const v = {};
+      ["type", "name", "category", "location", "date", "desc", "contact"].forEach((k) => (v[k] = $("#" + k).value.trim()));
+      const errs = clientValidate(v);
+      if (Object.keys(errs).length) return showErrors(errs);
+      const btn = $("#submitBtn");
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Saving…';
+      try {
+        await api("/api/items", { method: "POST", body: v });
+        toast("Report submitted ✔", "ok");
+        ev.target.reset(); $("#date").value = localDate();
+        await load();
+      } catch (e) {
+        if (e.details) showErrors(e.details);
+        toast(e.message, "bad");
+      } finally {
+        btn.disabled = false; btn.textContent = "Submit report";
+      }
+    });
+
+    $("#results").addEventListener("click", async (ev) => {
+      if (ev.target.id === "retry") return load();
+      const b = ev.target.closest("button[data-act]");
+      if (!b) return;
+      b.disabled = true;
+      try {
+        if (b.dataset.act === "delete") {
+          if (!confirm("Delete this report?")) { b.disabled = false; return; }
+          await api("/api/items/" + b.dataset.id, { method: "DELETE" });
+          const card = b.closest("article"); card.classList.add("slide-out");
+          await new Promise((r) => setTimeout(r, 300));
+          toast("Report deleted", "ok");
+        } else {
+          await api("/api/items/" + b.dataset.id, { method: "PATCH", body: { status: b.dataset.status } });
+          toast("Status updated", "ok");
+        }
+        await load();
+      } catch (e) { toast(e.message, "bad"); b.disabled = false; if (e.status === 404) load(); }
+    });
+
+    const reload = debounce(load, 250);
+    $("#q").addEventListener("input", reload);
+    ["#fType", "#fCat", "#fStatus"].forEach((s) => $(s).addEventListener("change", load));
+    load();
+  </script>
+</body>
+</html>

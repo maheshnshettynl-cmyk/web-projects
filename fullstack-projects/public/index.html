@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Campus Toolkit: Smart Lost & Found, Weather Safety Advisor and FocusFlow study planner." />
+  <title>Campus Toolkit</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="page">
+    <header id="nav"></header>
+
+    <main class="max-w-6xl mx-auto px-4 py-10">
+      <section class="text-center py-8">
+        <p class="bounce text-5xl mb-4" aria-hidden="true">🚀</p>
+        <h1 class="hero-title">Three real-world problems.<br />One full-stack app.</h1>
+        <p class="mt-5 text-slate-300 max-w-2xl mx-auto">Built with HTML5, CSS, Tailwind, JavaScript (DOM, Fetch, JSON) on the front end and Node.js + Express REST API on the back end.</p>
+        <p class="mt-4 text-sm"><span id="dot" class="pulse-dot off"></span> <span id="serverStatus" class="text-slate-400">Checking server…</span></p>
+      </section>
+
+      <section class="grid gap-5 md:grid-cols-3" aria-label="Projects">
+        <a href="/lost-found.html" class="card hover reveal wiggle block no-underline text-inherit">
+          <p class="text-4xl emoji inline-block">🔎</p>
+          <h2 class="text-xl font-bold mt-3">Smart Lost &amp; Found</h2>
+          <p class="text-slate-300 text-sm mt-2">Students lose things on campus and have no single place to look. Report, search and resolve items.</p>
+          <p class="mt-4 text-sm text-indigo-300"><strong id="cItems" data-v="0">0</strong> items reported →</p>
+        </a>
+        <a href="/weather.html" class="card hover reveal wiggle block no-underline text-inherit" style="transition-delay:.1s">
+          <p class="text-4xl emoji inline-block">🌦️</p>
+          <h2 class="text-xl font-bold mt-3">Weather Safety Advisor</h2>
+          <p class="text-slate-300 text-sm mt-2">Numbers are not advice. Get plain-language safety tips for heat, rain, storms and wind.</p>
+          <p class="mt-4 text-sm text-indigo-300">Live data from Open-Meteo →</p>
+        </a>
+        <a href="/focusflow.html" class="card hover reveal wiggle block no-underline text-inherit" style="transition-delay:.2s">
+          <p class="text-4xl emoji inline-block">🎯</p>
+          <h2 class="text-xl font-bold mt-3">FocusFlow</h2>
+          <p class="text-slate-300 text-sm mt-2">Big goals feel overwhelming. Break them into small steps and focus one session at a time.</p>
+          <p class="mt-4 text-sm text-indigo-300"><strong id="cTasks" data-v="0">0</strong> tasks planned →</p>
+        </a>
+      </section>
+
+      <section class="card reveal mt-10" aria-labelledby="how">
+        <h2 id="how" class="text-lg font-bold mb-3">How the full stack fits together</h2>
+        <ol class="grid gap-3 md:grid-cols-4 text-sm text-slate-300">
+          <li><strong class="text-white">1. Browser</strong><br />HTML + Tailwind + JS build the UI and validate forms.</li>
+          <li><strong class="text-white">2. fetch()</strong><br />JS sends JSON requests to <code>/api/...</code>.</li>
+          <li><strong class="text-white">3. Express</strong><br />Server validates again, applies logic, calls the weather API.</li>
+          <li><strong class="text-white">4. Storage</strong><br />Data is saved in <code>data/db.json</code> and survives restarts.</li>
+        </ol>
+      </section>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    App.renderNav("home");
+    (async function () {
+      const { api, countUp, $ } = App;
+      try {
+        const h = await api("/api/health");
+        $("#dot").classList.remove("off");
+        $("#serverStatus").textContent = "Server online · up " + h.uptime + "s";
+      } catch (e) {
+        $("#serverStatus").textContent = "Server offline. Run: npm start";
+        return;
+      }
+      try {
+        const [items, tasks] = await Promise.all([api("/api/items"), api("/api/tasks")]);
+        countUp($("#cItems"), items.summary.total);
+        countUp($("#cTasks"), tasks.summary.total);
+      } catch (_) { /* counters are optional */ }
+    })();
+  </script>
+</body>
+</html>
